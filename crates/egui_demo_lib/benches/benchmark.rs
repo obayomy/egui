@@ -16,7 +16,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 let full_output = ctx.run(RawInput::default(), |ctx| {
                     demo_windows.ui(ctx);
                 });
-                ctx.tessellate(full_output.shapes)
+                ctx.tessellate(full_output.shapes, full_output.pixels_per_point)
             });
         });
 
@@ -32,7 +32,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             demo_windows.ui(ctx);
         });
         c.bench_function("demo_only_tessellate", |b| {
-            b.iter(|| ctx.tessellate(full_output.shapes.clone()));
+            b.iter(|| ctx.tessellate(full_output.shapes.clone(), full_output.pixels_per_point));
         });
     }
 
@@ -69,19 +69,25 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     {
         let ctx = egui::Context::default();
-        ctx.begin_frame(RawInput::default());
+        ctx.begin_pass(RawInput::default());
 
         egui::CentralPanel::default().show(&ctx, |ui| {
             c.bench_function("Painter::rect", |b| {
                 let painter = ui.painter();
                 let rect = ui.max_rect();
                 b.iter(|| {
-                    painter.rect(rect, 2.0, egui::Color32::RED, (1.0, egui::Color32::WHITE));
+                    painter.rect(
+                        rect,
+                        2.0,
+                        egui::Color32::RED,
+                        (1.0, egui::Color32::WHITE),
+                        egui::StrokeKind::Inside,
+                    );
                 });
             });
         });
 
-        // Don't call `end_frame` to not have to drain the huge paint list
+        // Don't call `end_pass` to not have to drain the huge paint list
     }
 
     {
@@ -89,7 +95,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let max_texture_side = 8 * 1024;
         let wrap_width = 512.0;
         let font_id = egui::FontId::default();
-        let color = egui::Color32::WHITE;
+        let text_color = egui::Color32::WHITE;
         let fonts = egui::epaint::text::Fonts::new(
             pixels_per_point,
             max_texture_side,
@@ -104,7 +110,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                     let job = LayoutJob::simple(
                         LOREM_IPSUM_LONG.to_owned(),
                         font_id.clone(),
-                        color,
+                        text_color,
                         wrap_width,
                     );
                     layout(&mut locked_fonts.fonts, job.into())
@@ -116,13 +122,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 fonts.layout(
                     LOREM_IPSUM_LONG.to_owned(),
                     font_id.clone(),
-                    color,
+                    text_color,
                     wrap_width,
                 )
             });
         });
 
-        let galley = fonts.layout(LOREM_IPSUM_LONG.to_owned(), font_id, color, wrap_width);
+        let galley = fonts.layout(LOREM_IPSUM_LONG.to_owned(), font_id, text_color, wrap_width);
         let font_image_size = fonts.font_image_size();
         let prepared_discs = fonts.texture_atlas().lock().prepared_discs();
         let mut tessellator = egui::epaint::Tessellator::new(
@@ -132,7 +138,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             prepared_discs,
         );
         let mut mesh = egui::epaint::Mesh::default();
-        let text_shape = TextShape::new(egui::Pos2::ZERO, galley);
+        let text_shape = TextShape::new(egui::Pos2::ZERO, galley, text_color);
         c.bench_function("tessellate_text", |b| {
             b.iter(|| {
                 tessellator.tessellate_text(&text_shape, &mut mesh);

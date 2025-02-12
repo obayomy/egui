@@ -4,12 +4,14 @@ pub struct WebLogger {
 }
 
 impl WebLogger {
-    /// Pipe all [`log`] events to the web console.
+    /// Install a new `WebLogger`, piping all [`log`] events to the web console.
     pub fn init(filter: log::LevelFilter) -> Result<(), log::SetLoggerError> {
         log::set_max_level(filter);
-        log::set_boxed_logger(Box::new(WebLogger::new(filter)))
+        log::set_boxed_logger(Box::new(Self::new(filter)))
     }
 
+    /// Create a new [`WebLogger`] with the given filter,
+    /// but don't install it.
     pub fn new(filter: log::LevelFilter) -> Self {
         Self { filter }
     }
@@ -17,10 +19,27 @@ impl WebLogger {
 
 impl log::Log for WebLogger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        /// Never log anything less serious than a `INFO` from these crates.
+        const CRATES_AT_INFO_LEVEL: &[&str] = &[
+            // wgpu crates spam a lot on debug level, which is really annoying
+            "naga",
+            "wgpu_core",
+            "wgpu_hal",
+        ];
+
+        if CRATES_AT_INFO_LEVEL
+            .iter()
+            .any(|crate_name| metadata.target().starts_with(crate_name))
+        {
+            return metadata.level() <= log::LevelFilter::Info;
+        }
+
         metadata.level() <= self.filter
     }
 
     fn log(&self, record: &log::Record<'_>) {
+        #![allow(clippy::match_same_arms)]
+
         if !self.enabled(record.metadata()) {
             return;
         }
@@ -33,11 +52,17 @@ impl log::Log for WebLogger {
         };
 
         match record.level() {
-            log::Level::Trace => console::trace(&msg),
+            // NOTE: the `console::trace` includes a stack trace, which is super-noisy.
+            log::Level::Trace => console::debug(&msg),
+
             log::Level::Debug => console::debug(&msg),
             log::Level::Info => console::info(&msg),
             log::Level::Warn => console::warn(&msg),
-            log::Level::Error => console::error(&msg),
+
+            // Using console.error causes crashes for unknown reason
+            // https://github.com/emilk/egui/pull/2961
+            // log::Level::Error => console::error(&msg),
+            log::Level::Error => console::warn(&format!("ERROR: {msg}")),
         }
     }
 
@@ -66,9 +91,11 @@ mod console {
         #[wasm_bindgen(js_namespace = console)]
         pub fn warn(s: &str);
 
-        /// `console.error`
-        #[wasm_bindgen(js_namespace = console)]
-        pub fn error(s: &str);
+        // Using console.error causes crashes for unknown reason
+        // https://github.com/emilk/egui/pull/2961
+        // /// `console.error`
+        // #[wasm_bindgen(js_namespace = console)]
+        // pub fn error(s: &str);
     }
 }
 

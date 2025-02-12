@@ -1,4 +1,5 @@
 use crate::{textures::TextureOptions, Color32};
+use std::sync::Arc;
 
 /// An image stored in RAM.
 ///
@@ -11,7 +12,7 @@ use crate::{textures::TextureOptions, Color32};
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum ImageData {
     /// RGBA image.
-    Color(ColorImage),
+    Color(Arc<ColorImage>),
 
     /// Used for the font texture.
     Font(FontImage),
@@ -110,6 +111,26 @@ impl ColorImage {
         Self { size, pixels }
     }
 
+    /// Create a [`ColorImage`] from flat opaque gray data.
+    ///
+    /// Panics if `size[0] * size[1] != gray.len()`.
+    pub fn from_gray(size: [usize; 2], gray: &[u8]) -> Self {
+        assert_eq!(size[0] * size[1], gray.len());
+        let pixels = gray.iter().map(|p| Color32::from_gray(*p)).collect();
+        Self { size, pixels }
+    }
+
+    /// Alternative method to `from_gray`.
+    /// Create a [`ColorImage`] from iterator over flat opaque gray data.
+    ///
+    /// Panics if `size[0] * size[1] != gray_iter.len()`.
+    #[doc(alias = "from_grey_iter")]
+    pub fn from_gray_iter(size: [usize; 2], gray_iter: impl Iterator<Item = u8>) -> Self {
+        let pixels: Vec<_> = gray_iter.map(Color32::from_gray).collect();
+        assert_eq!(size[0] * size[1], pixels.len());
+        Self { size, pixels }
+    }
+
     /// A view of the underlying data as `&[u8]`
     #[cfg(feature = "bytemuck")]
     pub fn as_raw(&self) -> &[u8] {
@@ -120,35 +141,6 @@ impl ColorImage {
     #[cfg(feature = "bytemuck")]
     pub fn as_raw_mut(&mut self) -> &mut [u8] {
         bytemuck::cast_slice_mut(&mut self.pixels)
-    }
-
-    /// Create a new Image from a patch of the current image. This method is especially convenient for screenshotting a part of the app
-    /// since `region` can be interpreted as screen coordinates of the entire screenshot if `pixels_per_point` is provided for the native application.
-    /// The floats of [`emath::Rect`] are cast to usize, rounding them down in order to interpret them as indices to the image data.
-    ///
-    /// Panics if `region.min.x > region.max.x || region.min.y > region.max.y`, or if a region larger than the image is passed.
-    pub fn region(&self, region: &emath::Rect, pixels_per_point: Option<f32>) -> Self {
-        let pixels_per_point = pixels_per_point.unwrap_or(1.0);
-        let min_x = (region.min.x * pixels_per_point) as usize;
-        let max_x = (region.max.x * pixels_per_point) as usize;
-        let min_y = (region.min.y * pixels_per_point) as usize;
-        let max_y = (region.max.y * pixels_per_point) as usize;
-        assert!(min_x <= max_x);
-        assert!(min_y <= max_y);
-        let width = max_x - min_x;
-        let height = max_y - min_y;
-        let mut output = Vec::with_capacity(width * height);
-        let row_stride = self.size[0];
-
-        for row in min_y..max_y {
-            output.extend_from_slice(
-                &self.pixels[row * row_stride + min_x..row * row_stride + max_x],
-            );
-        }
-        Self {
-            size: [width, height],
-            pixels: output,
-        }
     }
 
     /// Create a [`ColorImage`] from flat RGB data.
@@ -192,6 +184,39 @@ impl ColorImage {
     pub fn height(&self) -> usize {
         self.size[1]
     }
+
+    /// Create a new image from a patch of the current image.
+    ///
+    /// This method is especially convenient for screenshotting a part of the app
+    /// since `region` can be interpreted as screen coordinates of the entire screenshot if `pixels_per_point` is provided for the native application.
+    /// The floats of [`emath::Rect`] are cast to usize, rounding them down in order to interpret them as indices to the image data.
+    ///
+    /// Panics if `region.min.x > region.max.x || region.min.y > region.max.y`, or if a region larger than the image is passed.
+    pub fn region(&self, region: &emath::Rect, pixels_per_point: Option<f32>) -> Self {
+        let pixels_per_point = pixels_per_point.unwrap_or(1.0);
+        let min_x = (region.min.x * pixels_per_point) as usize;
+        let max_x = (region.max.x * pixels_per_point) as usize;
+        let min_y = (region.min.y * pixels_per_point) as usize;
+        let max_y = (region.max.y * pixels_per_point) as usize;
+        assert!(
+            min_x <= max_x && min_y <= max_y,
+            "Screenshot region is invalid: {region:?}"
+        );
+        let width = max_x - min_x;
+        let height = max_y - min_y;
+        let mut output = Vec::with_capacity(width * height);
+        let row_stride = self.size[0];
+
+        for row in min_y..max_y {
+            output.extend_from_slice(
+                &self.pixels[row * row_stride + min_x..row * row_stride + max_x],
+            );
+        }
+        Self {
+            size: [width, height],
+            pixels: output,
+        }
+    }
 }
 
 impl std::ops::Index<(usize, usize)> for ColorImage {
@@ -217,7 +242,23 @@ impl std::ops::IndexMut<(usize, usize)> for ColorImage {
 impl From<ColorImage> for ImageData {
     #[inline(always)]
     fn from(image: ColorImage) -> Self {
+        Self::Color(Arc::new(image))
+    }
+}
+
+impl From<Arc<ColorImage>> for ImageData {
+    #[inline]
+    fn from(image: Arc<ColorImage>) -> Self {
         Self::Color(image)
+    }
+}
+
+impl std::fmt::Debug for ColorImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ColorImage")
+            .field("size", &self.size)
+            .field("pixel-count", &self.pixels.len())
+            .finish_non_exhaustive()
     }
 }
 
@@ -263,11 +304,11 @@ impl FontImage {
     /// `gamma` should normally be set to `None`.
     ///
     /// If you are having problems with text looking skinny and pixelated, try using a low gamma, e.g. `0.4`.
-    pub fn srgba_pixels(
-        &'_ self,
-        gamma: Option<f32>,
-    ) -> impl ExactSizeIterator<Item = Color32> + '_ {
-        let gamma = gamma.unwrap_or(0.55); // TODO(emilk): this default coverage gamma is a magic constant, chosen by eye. I don't even know why we need it.
+    #[inline]
+    pub fn srgba_pixels(&self, gamma: Option<f32>) -> impl ExactSizeIterator<Item = Color32> + '_ {
+        // TODO(emilk): this default coverage gamma is a magic constant, chosen by eye. I don't even know why we need it.
+        // Maybe we need to implement the ideas in https://hikogui.org/2022/10/24/the-trouble-with-anti-aliasing.html
+        let gamma = gamma.unwrap_or(0.55);
         self.pixels.iter().map(move |coverage| {
             let alpha = coverage.powf(gamma);
             // We want to multiply with `vec4(alpha)` in the fragment shader:
@@ -277,7 +318,7 @@ impl FontImage {
     }
 
     /// Clone a sub-region as a new image.
-    pub fn region(&self, [x, y]: [usize; 2], [w, h]: [usize; 2]) -> FontImage {
+    pub fn region(&self, [x, y]: [usize; 2], [w, h]: [usize; 2]) -> Self {
         assert!(x + w <= self.width());
         assert!(y + h <= self.height());
 
@@ -287,7 +328,7 @@ impl FontImage {
             pixels.extend(&self.pixels[offset..(offset + w)]);
         }
         assert_eq!(pixels.len(), w * h);
-        FontImage {
+        Self {
             size: [w, h],
             pixels,
         }
@@ -321,8 +362,9 @@ impl From<FontImage> for ImageData {
     }
 }
 
+#[inline]
 fn fast_round(r: f32) -> u8 {
-    (r + 0.5).floor() as _ // rust does a saturating cast since 1.45
+    (r + 0.5) as _ // rust does a saturating cast since 1.45
 }
 
 // ----------------------------------------------------------------------------

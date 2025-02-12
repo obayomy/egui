@@ -8,13 +8,16 @@
 
 #![allow(clippy::float_cmp)]
 #![allow(clippy::manual_range_contains)]
-#![forbid(unsafe_code)]
 
 #[cfg(feature = "chrono")]
 mod datepicker;
 
+pub mod syntax_highlighting;
+
+#[doc(hidden)]
 pub mod image;
 mod layout;
+mod loaders;
 mod sizing;
 mod strip;
 mod table;
@@ -22,33 +25,26 @@ mod table;
 #[cfg(feature = "chrono")]
 pub use crate::datepicker::DatePickerButton;
 
+#[doc(hidden)]
+#[allow(deprecated)]
 pub use crate::image::RetainedImage;
 pub(crate) use crate::layout::StripLayout;
 pub use crate::sizing::Size;
 pub use crate::strip::*;
 pub use crate::table::*;
 
-/// Log an error with either `log` or `eprintln`
-macro_rules! log_err {
-    ($fmt: literal, $($arg: tt)*) => {{
-        #[cfg(feature = "log")]
-        log::error!($fmt, $($arg)*);
+pub use loaders::install_image_loaders;
 
-        #[cfg(not(feature = "log"))]
-        eprintln!(
-            concat!("egui_extras: ", $fmt), $($arg)*
-        );
-    }};
-}
-pub(crate) use log_err;
+// ---------------------------------------------------------------------------
 
 /// Panic in debug builds, log otherwise.
 macro_rules! log_or_panic {
+    ($fmt: literal) => {$crate::log_or_panic!($fmt,)};
     ($fmt: literal, $($arg: tt)*) => {{
         if cfg!(debug_assertions) {
             panic!($fmt, $($arg)*);
         } else {
-            $crate::log_err!($fmt, $($arg)*);
+            log::error!($fmt, $($arg)*);
         }
     }};
 }

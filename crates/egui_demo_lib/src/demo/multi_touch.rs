@@ -21,7 +21,7 @@ impl Default for MultiTouch {
     }
 }
 
-impl super::Demo for MultiTouch {
+impl crate::Demo for MultiTouch {
     fn name(&self) -> &'static str {
         "👌 Multi Touch"
     }
@@ -32,13 +32,13 @@ impl super::Demo for MultiTouch {
             .default_size(vec2(512.0, 512.0))
             .resizable(true)
             .show(ctx, |ui| {
-                use super::View as _;
+                use crate::View as _;
                 self.ui(ui);
             });
     }
 }
 
-impl super::View for MultiTouch {
+impl crate::View for MultiTouch {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
             ui.add(crate::egui_github_link_file!());
@@ -50,7 +50,7 @@ impl super::View for MultiTouch {
         ui.label("Try touch gestures Pinch/Stretch, Rotation, and Pressure with 2+ fingers.");
 
         let num_touches = ui.input(|i| i.multi_touch().map_or(0, |mt| mt.num_touches));
-        ui.label(format!("Current touches: {}", num_touches));
+        ui.label(format!("Current touches: {num_touches}"));
 
         let color = if ui.visuals().dark_mode {
             Color32::WHITE

@@ -1,6 +1,6 @@
 //! [`egui`] bindings for [`glow`](https://github.com/grovesNL/glow).
 //!
-//! The main types you want to look are are [`Painter`] and [`EguiGlow`].
+//! The main type you want to look at is [`Painter`].
 //!
 //! If you are writing an app, you may want to look at [`eframe`](https://docs.rs/eframe) instead.
 //!
@@ -10,19 +10,20 @@
 
 #![allow(clippy::float_cmp)]
 #![allow(clippy::manual_range_contains)]
+#![allow(clippy::undocumented_unsafe_blocks)]
 
 pub mod painter;
 pub use glow;
-pub use painter::{CallbackFn, Painter};
+pub use painter::{CallbackFn, Painter, PainterError};
 mod misc_util;
 mod shader_version;
 mod vao;
 
 pub use shader_version::ShaderVersion;
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "winit"))]
+#[cfg(feature = "winit")]
 pub mod winit;
-#[cfg(all(not(target_arch = "wasm32"), feature = "winit"))]
+#[cfg(feature = "winit")]
 pub use winit::*;
 
 /// Check for OpenGL error and report it using `log::error`.
@@ -109,25 +110,3 @@ pub fn check_for_gl_error_impl(gl: &glow::Context, file: &str, line: u32, contex
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-
-/// Profiling macro for feature "puffin"
-macro_rules! profile_function {
-    ($($arg: tt)*) => {
-        #[cfg(feature = "puffin")]
-        #[cfg(not(target_arch = "wasm32"))]
-        puffin::profile_function!($($arg)*);
-    };
-}
-pub(crate) use profile_function;
-
-/// Profiling macro for feature "puffin"
-macro_rules! profile_scope {
-    ($($arg: tt)*) => {
-        #[cfg(feature = "puffin")]
-        #[cfg(not(target_arch = "wasm32"))]
-        puffin::profile_scope!($($arg)*);
-    };
-}
-pub(crate) use profile_scope;

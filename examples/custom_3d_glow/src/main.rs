@@ -1,14 +1,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![allow(rustdoc::missing_crate_level_docs)] // it's an example
 #![allow(unsafe_code)]
+#![allow(clippy::undocumented_unsafe_blocks)]
 
-use eframe::egui;
+use eframe::{egui, egui_glow, glow};
 
 use egui::mutex::Mutex;
 use std::sync::Arc;
 
-fn main() -> Result<(), eframe::Error> {
+fn main() -> eframe::Result {
+    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(350.0, 380.0)),
+        viewport: egui::ViewportBuilder::default().with_inner_size([350.0, 380.0]),
         multisampling: 4,
         renderer: eframe::Renderer::Glow,
         ..Default::default()
@@ -16,7 +19,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Custom 3D painting in eframe using glow",
         options,
-        Box::new(|cc| Box::new(MyApp::new(cc))),
+        Box::new(|cc| Ok(Box::new(MyApp::new(cc)))),
     )
 }
 
@@ -68,7 +71,7 @@ impl MyApp {
         let (rect, response) =
             ui.allocate_exact_size(egui::Vec2::splat(300.0), egui::Sense::drag());
 
-        self.angle += response.drag_delta().x * 0.01;
+        self.angle += response.drag_motion().x * 0.01;
 
         // Clone locals so we can move them into the paint callback:
         let angle = self.angle;
@@ -143,7 +146,7 @@ impl RotatingTriangle {
                     let shader = gl
                         .create_shader(*shader_type)
                         .expect("Cannot create shader");
-                    gl.shader_source(shader, &format!("{}\n{}", shader_version, shader_source));
+                    gl.shader_source(shader, &format!("{shader_version}\n{shader_source}"));
                     gl.compile_shader(shader);
                     assert!(
                         gl.get_shader_compile_status(shader),
@@ -156,9 +159,11 @@ impl RotatingTriangle {
                 .collect();
 
             gl.link_program(program);
-            if !gl.get_program_link_status(program) {
-                panic!("{}", gl.get_program_info_log(program));
-            }
+            assert!(
+                gl.get_program_link_status(program),
+                "{}",
+                gl.get_program_info_log(program)
+            );
 
             for shader in shaders {
                 gl.detach_shader(program, shader);

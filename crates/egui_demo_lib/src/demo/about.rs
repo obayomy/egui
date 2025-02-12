@@ -3,7 +3,7 @@
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct About {}
 
-impl super::Demo for About {
+impl crate::Demo for About {
     fn name(&self) -> &'static str {
         "About egui"
     }
@@ -11,15 +11,18 @@ impl super::Demo for About {
     fn show(&mut self, ctx: &egui::Context, open: &mut bool) {
         egui::Window::new(self.name())
             .default_width(320.0)
+            .default_height(480.0)
             .open(open)
+            .resizable([true, false])
+            .scroll(false)
             .show(ctx, |ui| {
-                use super::View as _;
+                use crate::View as _;
                 self.ui(ui);
             });
     }
 }
 
-impl super::View for About {
+impl crate::View for About {
     fn ui(&mut self, ui: &mut egui::Ui) {
         use egui::special_emojis::{OS_APPLE, OS_LINUX, OS_WINDOWS};
 
@@ -34,18 +37,37 @@ impl super::View for About {
         ));
         ui.label("egui is designed to be easy to use, portable, and fast.");
 
-        ui.add_space(12.0); // ui.separator();
+        ui.add_space(12.0);
+
         ui.heading("Immediate mode");
         about_immediate_mode(ui);
 
-        ui.add_space(12.0); // ui.separator();
+        ui.add_space(12.0);
+
         ui.heading("Links");
         links(ui);
+
+        ui.add_space(12.0);
+
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.label("egui development is sponsored by ");
+            ui.hyperlink_to("Rerun.io", "https://www.rerun.io/");
+            ui.label(", a startup building an SDK for visualizing streams of multimodal data. ");
+            ui.label("For an example of a real-world egui app, see ");
+            ui.hyperlink_to("rerun.io/viewer", "https://www.rerun.io/viewer");
+            ui.label(" (runs in your browser).");
+        });
+
+        ui.add_space(12.0);
+
+        ui.vertical_centered(|ui| {
+            ui.add(crate::egui_github_link_file!());
+        });
     }
 }
 
 fn about_immediate_mode(ui: &mut egui::Ui) {
-    use crate::syntax_highlighting::code_view_ui;
     ui.style_mut().spacing.interact_size.y = 0.0; // hack to make `horizontal_wrapped` work better with text.
 
     ui.horizontal_wrapped(|ui| {
@@ -56,7 +78,7 @@ fn about_immediate_mode(ui: &mut egui::Ui) {
         });
 
     ui.add_space(8.0);
-    code_view_ui(
+    crate::rust_view_ui(
         ui,
         r#"
   if ui.button("Save").clicked() {
@@ -66,29 +88,24 @@ fn about_immediate_mode(ui: &mut egui::Ui) {
     );
     ui.add_space(8.0);
 
-    ui.label("Note how there are no callbacks or messages, and no button state to store.");
-
-    ui.label("Immediate mode has its roots in gaming, where everything on the screen is painted at the display refresh rate, i.e. at 60+ frames per second. \
-        In immediate mode GUIs, the entire interface is laid out and painted at the same high rate. \
-        This makes immediate mode GUIs especially well suited for highly interactive applications.");
-
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("More about immediate mode ");
+        ui.label("There are no callbacks or messages, and no button state to store. ");
+        ui.label("Read more about immediate mode ");
         ui.hyperlink_to("here", "https://github.com/emilk/egui#why-immediate-mode");
         ui.label(".");
     });
 }
 
 fn links(ui: &mut egui::Ui) {
-    use egui::special_emojis::{GITHUB, TWITTER};
+    use egui::special_emojis::GITHUB;
     ui.hyperlink_to(
-        format!("{} egui on GitHub", GITHUB),
+        format!("{GITHUB} github.com/emilk/egui"),
         "https://github.com/emilk/egui",
     );
     ui.hyperlink_to(
-        format!("{} @ernerfeldt", TWITTER),
-        "https://twitter.com/ernerfeldt",
+        "@ernerfeldt.bsky.social",
+        "https://bsky.app/profile/ernerfeldt.bsky.social",
     );
-    ui.hyperlink_to("egui documentation", "https://docs.rs/egui/");
+    ui.hyperlink_to("📓 egui documentation", "https://docs.rs/egui/");
 }

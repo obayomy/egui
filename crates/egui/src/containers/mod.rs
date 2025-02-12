@@ -5,21 +5,27 @@
 pub(crate) mod area;
 pub mod collapsing_header;
 mod combo_box;
-pub(crate) mod frame;
+pub mod frame;
+pub mod modal;
 pub mod panel;
 pub mod popup;
 pub(crate) mod resize;
+mod scene;
 pub mod scroll_area;
+mod sides;
 pub(crate) mod window;
 
 pub use {
-    area::Area,
+    area::{Area, AreaState},
     collapsing_header::{CollapsingHeader, CollapsingResponse},
     combo_box::*,
     frame::Frame,
+    modal::{Modal, ModalResponse},
     panel::{CentralPanel, SidePanel, TopBottomPanel},
     popup::*,
     resize::Resize,
+    scene::Scene,
     scroll_area::ScrollArea,
+    sides::Sides,
     window::Window,
 };
