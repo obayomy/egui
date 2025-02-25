@@ -1,8 +1,9 @@
+use egui::{Event, UserData, ViewportId};
+use egui_glow::glow;
+use std::sync::Arc;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use web_sys::HtmlCanvasElement;
-
-use egui_glow::glow;
 
 use crate::{WebGlContextOption, WebOptions};
 
@@ -10,8 +11,8 @@ use super::web_painter::WebPainter;
 
 pub(crate) struct WebPainterGlow {
     canvas: HtmlCanvasElement,
-    canvas_id: String,
     painter: egui_glow::Painter,
+    screenshots: Vec<(egui::ColorImage, Vec<UserData>)>,
 }
 
 impl WebPainterGlow {
@@ -19,20 +20,23 @@ impl WebPainterGlow {
         self.painter.gl()
     }
 
-    pub async fn new(canvas_id: &str, options: &WebOptions) -> Result<Self, String> {
-        let canvas = super::canvas_element_or_die(canvas_id);
-
+    pub async fn new(
+        _ctx: egui::Context,
+        canvas: HtmlCanvasElement,
+        options: &WebOptions,
+    ) -> Result<Self, String> {
         let (gl, shader_prefix) =
             init_glow_context_from_canvas(&canvas, options.webgl_context_option)?;
+        #[allow(clippy::arc_with_non_send_sync)]
         let gl = std::sync::Arc::new(gl);
 
-        let painter = egui_glow::Painter::new(gl, shader_prefix, None)
-            .map_err(|error| format!("Error starting glow painter: {}", error))?;
+        let painter = egui_glow::Painter::new(gl, shader_prefix, None, options.dithering)
+            .map_err(|err| format!("Error starting glow painter: {err}"))?;
 
         Ok(Self {
             canvas,
-            canvas_id: canvas_id.to_owned(),
             painter,
+            screenshots: Vec::new(),
         })
     }
 }
@@ -42,8 +46,8 @@ impl WebPainter for WebPainterGlow {
         self.painter.max_texture_side()
     }
 
-    fn canvas_id(&self) -> &str {
-        &self.canvas_id
+    fn canvas(&self) -> &HtmlCanvasElement {
+        &self.canvas
     }
 
     fn paint_and_update_textures(
@@ -52,6 +56,7 @@ impl WebPainter for WebPainterGlow {
         clipped_primitives: &[egui::ClippedPrimitive],
         pixels_per_point: f32,
         textures_delta: &egui::TexturesDelta,
+        capture: Vec<UserData>,
     ) -> Result<(), JsValue> {
         let canvas_dimension = [self.canvas.width(), self.canvas.height()];
 
@@ -63,6 +68,11 @@ impl WebPainter for WebPainterGlow {
         self.painter
             .paint_primitives(canvas_dimension, pixels_per_point, clipped_primitives);
 
+        if !capture.is_empty() {
+            let image = self.painter.read_screen_rgba(canvas_dimension);
+            self.screenshots.push((image, capture));
+        }
+
         for &id in &textures_delta.free {
             self.painter.free_texture(id);
         }
@@ -72,6 +82,19 @@ impl WebPainter for WebPainterGlow {
 
     fn destroy(&mut self) {
         self.painter.destroy();
+    }
+
+    fn handle_screenshots(&mut self, events: &mut Vec<Event>) {
+        for (image, data) in self.screenshots.drain(..) {
+            let image = Arc::new(image);
+            for data in data {
+                events.push(Event::Screenshot {
+                    viewport_id: ViewportId::default(),
+                    image: image.clone(),
+                    user_data: data,
+                });
+            }
+        }
     }
 }
 

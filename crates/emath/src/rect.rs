@@ -1,7 +1,6 @@
-use std::f32::INFINITY;
-use std::ops::RangeInclusive;
+use std::fmt;
 
-use crate::*;
+use crate::{lerp, pos2, vec2, Div, Mul, Pos2, Rangef, Rot2, Vec2};
 
 /// A rectangular region of space.
 ///
@@ -14,6 +13,10 @@ use crate::*;
 /// of `min` and `max` are swapped. These are usually a sign of an error.
 ///
 /// Normally the unit is points (logical pixels) in screen space coordinates.
+///
+/// `Rect` does NOT implement `Default`, because there is no obvious default value.
+/// [`Rect::ZERO`] may seem reasonable, but when used as a bounding box, [`Rect::NOTHING`]
+/// is a better default - so be explicit instead!
 #[repr(C)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -29,8 +32,8 @@ pub struct Rect {
 impl Rect {
     /// Infinite rectangle that contains every point.
     pub const EVERYTHING: Self = Self {
-        min: pos2(-INFINITY, -INFINITY),
-        max: pos2(INFINITY, INFINITY),
+        min: pos2(-f32::INFINITY, -f32::INFINITY),
+        max: pos2(f32::INFINITY, f32::INFINITY),
     };
 
     /// The inverse of [`Self::EVERYTHING`]: stretches from positive infinity to negative infinity.
@@ -49,25 +52,31 @@ impl Rect {
     /// assert_eq!(rect, Rect::from_min_max(pos2(0.0, 1.0), pos2(2.0, 3.0)))
     /// ```
     pub const NOTHING: Self = Self {
-        min: pos2(INFINITY, INFINITY),
-        max: pos2(-INFINITY, -INFINITY),
+        min: pos2(f32::INFINITY, f32::INFINITY),
+        max: pos2(-f32::INFINITY, -f32::INFINITY),
     };
 
-    /// An invalid [`Rect`] filled with [`f32::NAN`];
+    /// An invalid [`Rect`] filled with [`f32::NAN`].
     pub const NAN: Self = Self {
         min: pos2(f32::NAN, f32::NAN),
         max: pos2(f32::NAN, f32::NAN),
     };
 
+    /// A [`Rect`] filled with zeroes.
+    pub const ZERO: Self = Self {
+        min: Pos2::ZERO,
+        max: Pos2::ZERO,
+    };
+
     #[inline(always)]
     pub const fn from_min_max(min: Pos2, max: Pos2) -> Self {
-        Rect { min, max }
+        Self { min, max }
     }
 
     /// left-top corner plus a size (stretching right-down).
     #[inline(always)]
     pub fn from_min_size(min: Pos2, size: Vec2) -> Self {
-        Rect {
+        Self {
             min,
             max: min + size,
         }
@@ -75,32 +84,43 @@ impl Rect {
 
     #[inline(always)]
     pub fn from_center_size(center: Pos2, size: Vec2) -> Self {
-        Rect {
+        Self {
             min: center - size * 0.5,
             max: center + size * 0.5,
         }
     }
 
     #[inline(always)]
-    pub fn from_x_y_ranges(x_range: RangeInclusive<f32>, y_range: RangeInclusive<f32>) -> Self {
-        Rect {
-            min: pos2(*x_range.start(), *y_range.start()),
-            max: pos2(*x_range.end(), *y_range.end()),
+    pub fn from_x_y_ranges(x_range: impl Into<Rangef>, y_range: impl Into<Rangef>) -> Self {
+        let x_range = x_range.into();
+        let y_range = y_range.into();
+        Self {
+            min: pos2(x_range.min, y_range.min),
+            max: pos2(x_range.max, y_range.max),
         }
     }
 
     /// Returns the bounding rectangle of the two points.
     #[inline]
     pub fn from_two_pos(a: Pos2, b: Pos2) -> Self {
-        Rect {
+        Self {
             min: pos2(a.x.min(b.x), a.y.min(b.y)),
             max: pos2(a.x.max(b.x), a.y.max(b.y)),
         }
     }
 
+    /// A zero-sized rect at a specific point.
+    #[inline]
+    pub fn from_pos(point: Pos2) -> Self {
+        Self {
+            min: point,
+            max: point,
+        }
+    }
+
     /// Bounding-box around the points.
     pub fn from_points(points: &[Pos2]) -> Self {
-        let mut rect = Rect::NOTHING;
+        let mut rect = Self::NOTHING;
         for &p in points {
             rect.extend_with(p);
         }
@@ -139,6 +159,34 @@ impl Rect {
         rect
     }
 
+    #[must_use]
+    #[inline]
+    pub fn with_min_x(mut self, min_x: f32) -> Self {
+        self.min.x = min_x;
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_min_y(mut self, min_y: f32) -> Self {
+        self.min.y = min_y;
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_max_x(mut self, max_x: f32) -> Self {
+        self.max.x = max_x;
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_max_y(mut self, max_y: f32) -> Self {
+        self.max.y = max_y;
+        self
+    }
+
     /// Expand by this much in each direction, keeping the center
     #[must_use]
     pub fn expand(self, amnt: f32) -> Self {
@@ -148,7 +196,19 @@ impl Rect {
     /// Expand by this much in each direction, keeping the center
     #[must_use]
     pub fn expand2(self, amnt: Vec2) -> Self {
-        Rect::from_min_max(self.min - amnt, self.max + amnt)
+        Self::from_min_max(self.min - amnt, self.max + amnt)
+    }
+
+    /// Scale up by this factor in each direction, keeping the center
+    #[must_use]
+    pub fn scale_from_center(self, scale_factor: f32) -> Self {
+        self.scale_from_center2(Vec2::splat(scale_factor))
+    }
+
+    /// Scale up by this factor in each direction, keeping the center
+    #[must_use]
+    pub fn scale_from_center2(self, scale_factor: Vec2) -> Self {
+        Self::from_center_size(self.center(), self.size() * scale_factor)
     }
 
     /// Shrink by this much in each direction, keeping the center
@@ -160,13 +220,13 @@ impl Rect {
     /// Shrink by this much in each direction, keeping the center
     #[must_use]
     pub fn shrink2(self, amnt: Vec2) -> Self {
-        Rect::from_min_max(self.min + amnt, self.max - amnt)
+        Self::from_min_max(self.min + amnt, self.max - amnt)
     }
 
     #[must_use]
     #[inline]
     pub fn translate(self, amnt: Vec2) -> Self {
-        Rect::from_min_size(self.min + amnt, self.size())
+        Self::from_min_size(self.min + amnt, self.size())
     }
 
     /// Rotate the bounds (will expand the [`Rect`])
@@ -186,7 +246,7 @@ impl Rect {
 
     #[must_use]
     #[inline]
-    pub fn intersects(self, other: Rect) -> bool {
+    pub fn intersects(self, other: Self) -> bool {
         self.min.x <= other.max.x
             && other.min.x <= self.max.x
             && self.min.y <= other.max.y
@@ -215,7 +275,7 @@ impl Rect {
     }
 
     #[must_use]
-    pub fn contains_rect(&self, other: Rect) -> bool {
+    pub fn contains_rect(&self, other: Self) -> bool {
         self.contains(other.min) && self.contains(other.max)
     }
 
@@ -250,8 +310,8 @@ impl Rect {
     /// that contains both input rectangles.
     #[inline(always)]
     #[must_use]
-    pub fn union(self, other: Rect) -> Rect {
-        Rect {
+    pub fn union(self, other: Self) -> Self {
+        Self {
             min: self.min.min(other.min),
             max: self.max.max(other.max),
         }
@@ -260,7 +320,7 @@ impl Rect {
     /// The intersection of two [`Rect`], i.e. the area covered by both.
     #[inline]
     #[must_use]
-    pub fn intersect(self, other: Rect) -> Self {
+    pub fn intersect(self, other: Self) -> Self {
         Self {
             min: self.min.max(other.min),
             max: self.max.min(other.max),
@@ -275,6 +335,7 @@ impl Rect {
         }
     }
 
+    /// `rect.size() == Vec2 { x: rect.width(), y: rect.height() }`
     #[inline(always)]
     pub fn size(&self) -> Vec2 {
         self.max - self.min
@@ -320,6 +381,8 @@ impl Rect {
     /// The distance from the rect to the position.
     ///
     /// The distance is zero when the position is in the interior of the rectangle.
+    ///
+    /// [Negative rectangles](Self::is_negative) always return [`f32::INFINITY`].
     #[inline]
     pub fn distance_to_pos(&self, pos: Pos2) -> f32 {
         self.distance_sq_to_pos(pos).sqrt()
@@ -328,8 +391,14 @@ impl Rect {
     /// The distance from the rect to the position, squared.
     ///
     /// The distance is zero when the position is in the interior of the rectangle.
+    ///
+    /// [Negative rectangles](Self::is_negative) always return [`f32::INFINITY`].
     #[inline]
     pub fn distance_sq_to_pos(&self, pos: Pos2) -> f32 {
+        if self.is_negative() {
+            return f32::INFINITY;
+        }
+
         let dx = if self.min.x > pos.x {
             self.min.x - pos.x
         } else if pos.x > self.max.x {
@@ -352,35 +421,59 @@ impl Rect {
     /// Signed distance to the edge of the box.
     ///
     /// Negative inside the box.
+    ///
+    /// [Negative rectangles](Self::is_negative) always return [`f32::INFINITY`].
+    ///
+    /// ```
+    /// # use emath::{pos2, Rect};
+    /// let rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+    /// assert_eq!(rect.signed_distance_to_pos(pos2(0.50, 0.50)), -0.50);
+    /// assert_eq!(rect.signed_distance_to_pos(pos2(0.75, 0.50)), -0.25);
+    /// assert_eq!(rect.signed_distance_to_pos(pos2(1.50, 0.50)), 0.50);
+    /// ```
     pub fn signed_distance_to_pos(&self, pos: Pos2) -> f32 {
+        if self.is_negative() {
+            return f32::INFINITY;
+        }
+
         let edge_distances = (pos - self.center()).abs() - self.size() * 0.5;
-        let inside_dist = edge_distances.x.max(edge_distances.y).min(0.0);
+        let inside_dist = edge_distances.max_elem().min(0.0);
         let outside_dist = edge_distances.max(Vec2::ZERO).length();
         inside_dist + outside_dist
     }
 
     /// Linearly interpolate so that `[0, 0]` is [`Self::min`] and
     /// `[1, 1]` is [`Self::max`].
-    pub fn lerp(&self, t: Vec2) -> Pos2 {
+    #[inline]
+    pub fn lerp_inside(&self, t: Vec2) -> Pos2 {
         Pos2 {
             x: lerp(self.min.x..=self.max.x, t.x),
             y: lerp(self.min.y..=self.max.y, t.y),
         }
     }
 
-    #[inline(always)]
-    pub fn x_range(&self) -> RangeInclusive<f32> {
-        self.min.x..=self.max.x
+    /// Linearly self towards other rect.
+    #[inline]
+    pub fn lerp_towards(&self, other: &Self, t: f32) -> Self {
+        Self {
+            min: self.min.lerp(other.min, t),
+            max: self.max.lerp(other.max, t),
+        }
     }
 
     #[inline(always)]
-    pub fn y_range(&self) -> RangeInclusive<f32> {
-        self.min.y..=self.max.y
+    pub fn x_range(&self) -> Rangef {
+        Rangef::new(self.min.x, self.max.x)
     }
 
     #[inline(always)]
-    pub fn bottom_up_range(&self) -> RangeInclusive<f32> {
-        self.max.y..=self.min.y
+    pub fn y_range(&self) -> Rangef {
+        Rangef::new(self.min.y, self.max.y)
+    }
+
+    #[inline(always)]
+    pub fn bottom_up_range(&self) -> Rangef {
+        Rangef::new(self.max.y, self.min.y)
     }
 
     /// `width < 0 || height < 0`
@@ -483,6 +576,7 @@ impl Rect {
     }
 
     #[inline(always)]
+    #[doc(alias = "top_left")]
     pub fn left_top(&self) -> Pos2 {
         pos2(self.left(), self.top())
     }
@@ -493,6 +587,7 @@ impl Rect {
     }
 
     #[inline(always)]
+    #[doc(alias = "top_right")]
     pub fn right_top(&self) -> Pos2 {
         pos2(self.right(), self.top())
     }
@@ -508,6 +603,7 @@ impl Rect {
     }
 
     #[inline(always)]
+    #[doc(alias = "bottom_left")]
     pub fn left_bottom(&self) -> Pos2 {
         pos2(self.left(), self.bottom())
     }
@@ -518,20 +614,271 @@ impl Rect {
     }
 
     #[inline(always)]
+    #[doc(alias = "bottom_right")]
     pub fn right_bottom(&self) -> Pos2 {
         pos2(self.right(), self.bottom())
     }
+
+    /// Split rectangle in left and right halves. `t` is expected to be in the (0,1) range.
+    pub fn split_left_right_at_fraction(&self, t: f32) -> (Self, Self) {
+        self.split_left_right_at_x(lerp(self.min.x..=self.max.x, t))
+    }
+
+    /// Split rectangle in left and right halves at the given `x` coordinate.
+    pub fn split_left_right_at_x(&self, split_x: f32) -> (Self, Self) {
+        let left = Self::from_min_max(self.min, Pos2::new(split_x, self.max.y));
+        let right = Self::from_min_max(Pos2::new(split_x, self.min.y), self.max);
+        (left, right)
+    }
+
+    /// Split rectangle in top and bottom halves. `t` is expected to be in the (0,1) range.
+    pub fn split_top_bottom_at_fraction(&self, t: f32) -> (Self, Self) {
+        self.split_top_bottom_at_y(lerp(self.min.y..=self.max.y, t))
+    }
+
+    /// Split rectangle in top and bottom halves at the given `y` coordinate.
+    pub fn split_top_bottom_at_y(&self, split_y: f32) -> (Self, Self) {
+        let top = Self::from_min_max(self.min, Pos2::new(self.max.x, split_y));
+        let bottom = Self::from_min_max(Pos2::new(self.min.x, split_y), self.max);
+        (top, bottom)
+    }
 }
 
-impl std::fmt::Debug for Rect {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Rect {
+    /// Does this Rect intersect the given ray (where `d` is normalized)?
+    ///
+    /// A ray that starts inside the rect will return `true`.
+    pub fn intersects_ray(&self, o: Pos2, d: Vec2) -> bool {
+        debug_assert!(
+            d.is_normalized(),
+            "expected normalized direction, but `d` has length {}",
+            d.length()
+        );
+
+        let mut tmin = -f32::INFINITY;
+        let mut tmax = f32::INFINITY;
+
+        if d.x != 0.0 {
+            let tx1 = (self.min.x - o.x) / d.x;
+            let tx2 = (self.max.x - o.x) / d.x;
+
+            tmin = tmin.max(tx1.min(tx2));
+            tmax = tmax.min(tx1.max(tx2));
+        }
+
+        if d.y != 0.0 {
+            let ty1 = (self.min.y - o.y) / d.y;
+            let ty2 = (self.max.y - o.y) / d.y;
+
+            tmin = tmin.max(ty1.min(ty2));
+            tmax = tmax.min(ty1.max(ty2));
+        }
+
+        0.0 <= tmax && tmin <= tmax
+    }
+
+    /// Where does a ray from the center intersect the rectangle?
+    ///
+    /// `d` is the direction of the ray and assumed to be normalized.
+    pub fn intersects_ray_from_center(&self, d: Vec2) -> Pos2 {
+        debug_assert!(
+            d.is_normalized(),
+            "expected normalized direction, but `d` has length {}",
+            d.length()
+        );
+
+        let mut tmin = f32::NEG_INFINITY;
+        let mut tmax = f32::INFINITY;
+
+        for i in 0..2 {
+            let inv_d = 1.0 / -d[i];
+            let mut t0 = (self.min[i] - self.center()[i]) * inv_d;
+            let mut t1 = (self.max[i] - self.center()[i]) * inv_d;
+
+            if inv_d < 0.0 {
+                std::mem::swap(&mut t0, &mut t1);
+            }
+
+            tmin = tmin.max(t0);
+            tmax = tmax.min(t1);
+        }
+
+        let t = tmax.min(tmin);
+        self.center() + t * -d
+    }
+}
+
+impl fmt::Debug for Rect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{:?} - {:?}]", self.min, self.max)
+    }
+}
+
+impl fmt::Display for Rect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[")?;
+        self.min.fmt(f)?;
+        f.write_str(" - ")?;
+        self.max.fmt(f)?;
+        f.write_str("]")?;
+        Ok(())
     }
 }
 
 /// from (min, max) or (left top, right bottom)
 impl From<[Pos2; 2]> for Rect {
+    #[inline]
     fn from([min, max]: [Pos2; 2]) -> Self {
         Self { min, max }
+    }
+}
+
+impl Mul<f32> for Rect {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, factor: f32) -> Self {
+        Self {
+            min: self.min * factor,
+            max: self.max * factor,
+        }
+    }
+}
+
+impl Mul<Rect> for f32 {
+    type Output = Rect;
+
+    #[inline]
+    fn mul(self, vec: Rect) -> Rect {
+        Rect {
+            min: self * vec.min,
+            max: self * vec.max,
+        }
+    }
+}
+
+impl Div<f32> for Rect {
+    type Output = Self;
+
+    #[inline]
+    fn div(self, factor: f32) -> Self {
+        Self {
+            min: self.min / factor,
+            max: self.max / factor,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rect() {
+        let r = Rect::from_min_max(pos2(10.0, 10.0), pos2(20.0, 20.0));
+        assert_eq!(r.distance_sq_to_pos(pos2(15.0, 15.0)), 0.0);
+        assert_eq!(r.distance_sq_to_pos(pos2(10.0, 15.0)), 0.0);
+        assert_eq!(r.distance_sq_to_pos(pos2(10.0, 10.0)), 0.0);
+
+        assert_eq!(r.distance_sq_to_pos(pos2(5.0, 15.0)), 25.0); // left of
+        assert_eq!(r.distance_sq_to_pos(pos2(25.0, 15.0)), 25.0); // right of
+        assert_eq!(r.distance_sq_to_pos(pos2(15.0, 5.0)), 25.0); // above
+        assert_eq!(r.distance_sq_to_pos(pos2(15.0, 25.0)), 25.0); // below
+        assert_eq!(r.distance_sq_to_pos(pos2(25.0, 5.0)), 50.0); // right and above
+    }
+
+    #[test]
+    fn scale_rect() {
+        let c = pos2(100.0, 50.0);
+        let r = Rect::from_center_size(c, vec2(30.0, 60.0));
+
+        assert_eq!(
+            r.scale_from_center(2.0),
+            Rect::from_center_size(c, vec2(60.0, 120.0))
+        );
+        assert_eq!(
+            r.scale_from_center(0.5),
+            Rect::from_center_size(c, vec2(15.0, 30.0))
+        );
+        assert_eq!(
+            r.scale_from_center2(vec2(2.0, 3.0)),
+            Rect::from_center_size(c, vec2(60.0, 180.0))
+        );
+    }
+
+    #[test]
+    fn test_ray_intersection() {
+        let rect = Rect::from_min_max(pos2(1.0, 1.0), pos2(3.0, 3.0));
+
+        println!("Righward ray from left:");
+        assert!(rect.intersects_ray(pos2(0.0, 2.0), Vec2::RIGHT));
+
+        println!("Righward ray from center:");
+        assert!(rect.intersects_ray(pos2(2.0, 2.0), Vec2::RIGHT));
+
+        println!("Righward ray from right:");
+        assert!(!rect.intersects_ray(pos2(4.0, 2.0), Vec2::RIGHT));
+
+        println!("Leftward ray from left:");
+        assert!(!rect.intersects_ray(pos2(0.0, 2.0), Vec2::LEFT));
+
+        println!("Leftward ray from center:");
+        assert!(rect.intersects_ray(pos2(2.0, 2.0), Vec2::LEFT));
+
+        println!("Leftward ray from right:");
+        assert!(rect.intersects_ray(pos2(4.0, 2.0), Vec2::LEFT));
+    }
+
+    #[test]
+    fn test_ray_from_center_intersection() {
+        let rect = Rect::from_min_max(pos2(1.0, 1.0), pos2(3.0, 3.0));
+
+        assert_eq!(
+            rect.intersects_ray_from_center(Vec2::RIGHT),
+            pos2(3.0, 2.0),
+            "rightward ray"
+        );
+
+        assert_eq!(
+            rect.intersects_ray_from_center(Vec2::UP),
+            pos2(2.0, 1.0),
+            "upward ray"
+        );
+
+        assert_eq!(
+            rect.intersects_ray_from_center(Vec2::LEFT),
+            pos2(1.0, 2.0),
+            "leftward ray"
+        );
+
+        assert_eq!(
+            rect.intersects_ray_from_center(Vec2::DOWN),
+            pos2(2.0, 3.0),
+            "downward ray"
+        );
+
+        assert_eq!(
+            rect.intersects_ray_from_center((Vec2::LEFT + Vec2::DOWN).normalized()),
+            pos2(1.0, 3.0),
+            "bottom-left corner ray"
+        );
+
+        assert_eq!(
+            rect.intersects_ray_from_center((Vec2::LEFT + Vec2::UP).normalized()),
+            pos2(1.0, 1.0),
+            "top-left corner ray"
+        );
+
+        assert_eq!(
+            rect.intersects_ray_from_center((Vec2::RIGHT + Vec2::DOWN).normalized()),
+            pos2(3.0, 3.0),
+            "bottom-right corner ray"
+        );
+
+        assert_eq!(
+            rect.intersects_ray_from_center((Vec2::RIGHT + Vec2::UP).normalized()),
+            pos2(3.0, 1.0),
+            "top-right corner ray"
+        );
     }
 }

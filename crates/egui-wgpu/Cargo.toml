@@ -1,16 +1,16 @@
 [package]
 name = "egui-wgpu"
-version = "0.21.0"
+version.workspace = true
 description = "Bindings for using egui natively using the wgpu library"
 authors = [
   "Nils Hasenbanck <nils@hasenbanck.de>",
   "embotech <opensource@embotech.com>",
   "Emil Ernerfeldt <emil.ernerfeldt@gmail.com>",
 ]
-edition = "2021"
-rust-version = "1.65"
+edition.workspace = true
+rust-version.workspace = true
 homepage = "https://github.com/emilk/egui/tree/master/crates/egui-wgpu"
-license = "MIT OR Apache-2.0"
+license.workspace = true
 readme = "README.md"
 repository = "https://github.com/emilk/egui/tree/master/crates/egui-wgpu"
 categories = ["gui", "game-development"]
@@ -23,34 +23,46 @@ include = [
   "Cargo.toml",
 ]
 
+[lints]
+workspace = true
+
 [package.metadata.docs.rs]
 all-features = true
-
+rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
-## Enable profiling with the [`puffin`](https://docs.rs/puffin) crate.
-puffin = ["dep:puffin"]
+default = ["fragile-send-sync-non-atomic-wasm"]
 
-## Enable [`winit`](https://docs.rs/winit) integration.
-winit = ["dep:winit"]
+## Enable [`winit`](https://docs.rs/winit) integration. On Linux, requires either `wayland` or `x11`
+winit = ["dep:winit", "winit/rwh_06"]
 
+## Enables Wayland support for winit.
+wayland = ["winit?/wayland"]
+
+## Enables x11 support for winit.
+x11 = ["winit?/x11"]
+
+## Make the renderer `Sync` on wasm, exploiting that by default wasm isn't multithreaded.
+## It may make code easier, expecially when targeting both native and web.
+## On native most wgpu objects are send and sync, on the web they are not (by nature of the WebGPU specification).
+## This is not supported in [multithreaded WASM](https://gpuweb.github.io/gpuweb/explainer/#multithreading-transfer).
+## Thus that usage is guarded against with compiler errors in wgpu.
+fragile-send-sync-non-atomic-wasm = ["wgpu/fragile-send-sync-non-atomic-wasm"]
 
 [dependencies]
-epaint = { version = "0.21.0", path = "../epaint", default-features = false, features = [
-  "bytemuck",
-] }
+egui = { workspace = true, default-features = false }
+epaint = { workspace = true, default-features = false, features = ["bytemuck"] }
 
-bytemuck = "1.7"
-log = { version = "0.4", features = ["std"] }
-type-map = "0.5.0"
-wgpu = "0.15.0"
+ahash.workspace = true
+bytemuck.workspace = true
+document-features.workspace = true
+log.workspace = true
+profiling.workspace = true
+thiserror.workspace = true
+type-map.workspace = true
+web-time.workspace = true
+wgpu = { workspace = true, features = ["wgsl"] }
 
-#! ### Optional dependencies
-## Enable this when generating docs.
-document-features = { version = "0.2", optional = true }
+# Optional dependencies:
 
-winit = { version = "0.28", optional = true }
-
-# Native:
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-puffin = { version = "0.14", optional = true }
+winit = { workspace = true, optional = true, default-features = false }

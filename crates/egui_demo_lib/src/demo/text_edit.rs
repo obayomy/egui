@@ -1,12 +1,12 @@
-/// Showcase [`TextEdit`].
+/// Showcase [`egui::TextEdit`].
 #[derive(PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(default))]
-pub struct TextEdit {
+pub struct TextEditDemo {
     pub text: String,
 }
 
-impl Default for TextEdit {
+impl Default for TextEditDemo {
     fn default() -> Self {
         Self {
             text: "Edit this text".to_owned(),
@@ -14,7 +14,7 @@ impl Default for TextEdit {
     }
 }
 
-impl super::Demo for TextEdit {
+impl crate::Demo for TextEditDemo {
     fn name(&self) -> &'static str {
         "🖹 TextEdit"
     }
@@ -24,14 +24,18 @@ impl super::Demo for TextEdit {
             .open(open)
             .resizable(false)
             .show(ctx, |ui| {
-                use super::View as _;
+                use crate::View as _;
                 self.ui(ui);
             });
     }
 }
 
-impl super::View for TextEdit {
+impl crate::View for TextEditDemo {
     fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add(crate::egui_github_link_file!());
+        });
+
         let Self { text } = self;
 
         ui.horizontal(|ui| {
@@ -49,16 +53,12 @@ impl super::View for TextEdit {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.label("Selected text: ");
             if let Some(text_cursor_range) = output.cursor_range {
-                use egui::TextBuffer as _;
-                let selected_chars = text_cursor_range.as_sorted_char_range();
-                let selected_text = text.char_range(selected_chars);
+                let selected_text = text_cursor_range.slice_str(text);
                 ui.code(selected_text);
             }
         });
 
-        let anything_selected = output
-            .cursor_range
-            .map_or(false, |cursor| !cursor.is_empty());
+        let anything_selected = output.cursor_range.is_some_and(|cursor| !cursor.is_empty());
 
         ui.add_enabled(
             anything_selected,
@@ -88,7 +88,9 @@ impl super::View for TextEdit {
                 let text_edit_id = output.response.id;
                 if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), text_edit_id) {
                     let ccursor = egui::text::CCursor::new(0);
-                    state.set_ccursor_range(Some(egui::text::CCursorRange::one(ccursor)));
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
                     state.store(ui.ctx(), text_edit_id);
                     ui.ctx().memory_mut(|mem| mem.request_focus(text_edit_id)); // give focus back to the [`TextEdit`].
                 }
@@ -98,11 +100,51 @@ impl super::View for TextEdit {
                 let text_edit_id = output.response.id;
                 if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), text_edit_id) {
                     let ccursor = egui::text::CCursor::new(text.chars().count());
-                    state.set_ccursor_range(Some(egui::text::CCursorRange::one(ccursor)));
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
                     state.store(ui.ctx(), text_edit_id);
                     ui.ctx().memory_mut(|mem| mem.request_focus(text_edit_id)); // give focus back to the [`TextEdit`].
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{accesskit, CentralPanel};
+    use egui_kittest::kittest::{Key, Queryable};
+    use egui_kittest::Harness;
+
+    #[test]
+    pub fn should_type() {
+        let text = "Hello, world!".to_owned();
+        let mut harness = Harness::new_state(
+            move |ctx, text| {
+                CentralPanel::default().show(ctx, |ui| {
+                    ui.text_edit_singleline(text);
+                });
+            },
+            text,
+        );
+
+        harness.run();
+
+        let text_edit = harness.get_by_role(accesskit::Role::TextInput);
+        assert_eq!(text_edit.value().as_deref(), Some("Hello, world!"));
+
+        text_edit.key_combination(&[Key::Command, Key::A]);
+        text_edit.type_text("Hi ");
+
+        harness.run();
+        harness
+            .get_by_role(accesskit::Role::TextInput)
+            .type_text("there!");
+
+        harness.run();
+        let text_edit = harness.get_by_role(accesskit::Role::TextInput);
+        assert_eq!(text_edit.value().as_deref(), Some("Hi there!"));
+        assert_eq!(harness.state(), "Hi there!");
     }
 }

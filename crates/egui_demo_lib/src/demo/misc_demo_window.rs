@@ -1,16 +1,15 @@
-use super::*;
-use crate::LOREM_IPSUM;
-use egui::{epaint::text::TextWrapping, *};
+use super::{Demo, View};
+
+use egui::{
+    vec2, Align, Checkbox, CollapsingHeader, Color32, Context, FontId, Resize, RichText, Sense,
+    Slider, Stroke, TextFormat, TextStyle, Ui, Vec2, Window,
+};
 
 /// Showcase some ui code
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct MiscDemoWindow {
     num_columns: usize,
-
-    break_anywhere: bool,
-    max_rows: usize,
-    overflow_character: Option<char>,
 
     widgets: Widgets,
     colors: ColorWidgets,
@@ -20,16 +19,13 @@ pub struct MiscDemoWindow {
 
     dummy_bool: bool,
     dummy_usize: usize,
+    checklist: [bool; 3],
 }
 
 impl Default for MiscDemoWindow {
-    fn default() -> MiscDemoWindow {
-        MiscDemoWindow {
+    fn default() -> Self {
+        Self {
             num_columns: 2,
-
-            max_rows: 2,
-            break_anywhere: false,
-            overflow_character: Some('…'),
 
             widgets: Default::default(),
             colors: Default::default(),
@@ -39,6 +35,7 @@ impl Default for MiscDemoWindow {
 
             dummy_bool: false,
             dummy_usize: 0,
+            checklist: std::array::from_fn(|i| i == 0),
         }
     }
 }
@@ -61,8 +58,14 @@ impl View for MiscDemoWindow {
     fn ui(&mut self, ui: &mut Ui) {
         ui.set_min_width(250.0);
 
-        CollapsingHeader::new("Widgets")
+        CollapsingHeader::new("Label")
             .default_open(true)
+            .show(ui, |ui| {
+                label_ui(ui);
+            });
+
+        CollapsingHeader::new("Misc widgets")
+            .default_open(false)
             .show(ui, |ui| {
                 self.widgets.ui(ui);
             });
@@ -70,12 +73,10 @@ impl View for MiscDemoWindow {
         CollapsingHeader::new("Text layout")
             .default_open(false)
             .show(ui, |ui| {
-                text_layout_ui(
-                    ui,
-                    &mut self.max_rows,
-                    &mut self.break_anywhere,
-                    &mut self.overflow_character,
-                );
+                text_layout_demo(ui);
+                ui.vertical_centered(|ui| {
+                    ui.add(crate::egui_github_link_file_line!());
+                });
             });
 
         CollapsingHeader::new("Colors")
@@ -112,6 +113,24 @@ impl View for MiscDemoWindow {
                     }
                 });
                 ui.radio_value(&mut self.dummy_usize, 64, "radio_value");
+                ui.label("Checkboxes can be in an indeterminate state:");
+                let mut all_checked = self.checklist.iter().all(|item| *item);
+                let any_checked = self.checklist.iter().any(|item| *item);
+                let indeterminate = any_checked && !all_checked;
+                if ui
+                    .add(
+                        Checkbox::new(&mut all_checked, "Check/uncheck all")
+                            .indeterminate(indeterminate),
+                    )
+                    .changed()
+                {
+                    for check in &mut self.checklist {
+                        *check = all_checked;
+                    }
+                }
+                for (i, checked) in self.checklist.iter_mut().enumerate() {
+                    ui.checkbox(checked, format!("Item {}", i + 1));
+                }
             });
 
         ui.collapsing("Columns", |ui| {
@@ -138,6 +157,10 @@ impl View for MiscDemoWindow {
                     ui.label("Just pull the handle on the bottom right");
                 });
             });
+
+        CollapsingHeader::new("Ui Stack")
+            .default_open(false)
+            .show(ui, ui_stack_demo);
 
         CollapsingHeader::new("Misc")
             .default_open(false)
@@ -177,6 +200,43 @@ impl View for MiscDemoWindow {
 
 // ----------------------------------------------------------------------------
 
+fn label_ui(ui: &mut egui::Ui) {
+    ui.vertical_centered(|ui| {
+        ui.add(crate::egui_github_link_file_line!());
+    });
+
+    ui.horizontal_wrapped(|ui| {
+            // Trick so we don't have to add spaces in the text below:
+            let width = ui.fonts(|f|f.glyph_width(&TextStyle::Body.resolve(ui.style()), ' '));
+            ui.spacing_mut().item_spacing.x = width;
+
+            ui.label(RichText::new("Text can have").color(Color32::from_rgb(110, 255, 110)));
+            ui.colored_label(Color32::from_rgb(128, 140, 255), "color"); // Shortcut version
+            ui.label("and tooltips.").on_hover_text(
+                "This is a multiline tooltip that demonstrates that you can easily add tooltips to any element.\nThis is the second line.\nThis is the third.",
+            );
+
+            ui.label("You can mix in other widgets into text, like");
+            let _ = ui.small_button("this button");
+            ui.label(".");
+
+            ui.label("The default font supports all latin and cyrillic characters (ИÅđ…), common math symbols (∫√∞²⅓…), and many emojis (💓🌟🖩…).")
+                .on_hover_text("There is currently no support for right-to-left languages.");
+            ui.label("See the 🔤 Font Book for more!");
+
+            ui.monospace("There is also a monospace font.");
+        });
+
+    ui.add(
+        egui::Label::new(
+            "Labels containing long text can be set to elide the text that doesn't fit on a single line using `Label::truncate`. When hovered, the label will show the full text.",
+        )
+        .truncate(),
+    );
+}
+
+// ----------------------------------------------------------------------------
+
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct Widgets {
@@ -199,39 +259,6 @@ impl Widgets {
         ui.vertical_centered(|ui| {
             ui.add(crate::egui_github_link_file_line!());
         });
-
-        ui.horizontal_wrapped(|ui| {
-            // Trick so we don't have to add spaces in the text below:
-            let width = ui.fonts(|f|f.glyph_width(&TextStyle::Body.resolve(ui.style()), ' '));
-            ui.spacing_mut().item_spacing.x = width;
-
-            ui.label(RichText::new("Text can have").color(Color32::from_rgb(110, 255, 110)));
-            ui.colored_label(Color32::from_rgb(128, 140, 255), "color"); // Shortcut version
-            ui.label("and tooltips.").on_hover_text(
-                "This is a multiline tooltip that demonstrates that you can easily add tooltips to any element.\nThis is the second line.\nThis is the third.",
-            );
-
-            ui.label("You can mix in other widgets into text, like");
-            let _ = ui.small_button("this button");
-            ui.label(".");
-
-            ui.label("The default font supports all latin and cyrillic characters (ИÅđ…), common math symbols (∫√∞²⅓…), and many emojis (💓🌟🖩…).")
-                .on_hover_text("There is currently no support for right-to-left languages.");
-            ui.label("See the 🔤 Font Book for more!");
-
-            ui.monospace("There is also a monospace font.");
-        });
-
-        let tooltip_ui = |ui: &mut Ui| {
-            ui.heading("The name of the tooltip");
-            ui.horizontal(|ui| {
-                ui.label("This tooltip was created with");
-                ui.monospace(".on_hover_ui(…)");
-            });
-            let _ = ui.button("A button you can never press");
-        };
-        ui.label("Tooltips can be more than just simple text.")
-            .on_hover_ui(tooltip_ui);
 
         ui.separator();
 
@@ -269,7 +296,7 @@ struct ColorWidgets {
 impl Default for ColorWidgets {
     fn default() -> Self {
         // Approximately the same color.
-        ColorWidgets {
+        Self {
             srgba_unmul: [0, 255, 183, 127],
             srgba_premul: [0, 187, 140, 127],
             rgba_unmul: [0.0, 1.0, 0.5, 0.5],
@@ -280,7 +307,7 @@ impl Default for ColorWidgets {
 
 impl ColorWidgets {
     fn ui(&mut self, ui: &mut Ui) {
-        egui::reset_button(ui, self);
+        egui::reset_button(ui, self, "Reset");
 
         ui.label("egui lets you edit colors stored as either sRGBA or linear RGBA and with or without premultiplied alpha");
 
@@ -331,7 +358,7 @@ impl ColorWidgets {
 #[cfg_attr(feature = "serde", serde(default))]
 struct BoxPainting {
     size: Vec2,
-    rounding: f32,
+    corner_radius: f32,
     stroke_width: f32,
     num_boxes: usize,
 }
@@ -340,7 +367,7 @@ impl Default for BoxPainting {
     fn default() -> Self {
         Self {
             size: vec2(64.0, 32.0),
-            rounding: 5.0,
+            corner_radius: 5.0,
             stroke_width: 2.0,
             num_boxes: 1,
         }
@@ -351,7 +378,7 @@ impl BoxPainting {
     pub fn ui(&mut self, ui: &mut Ui) {
         ui.add(Slider::new(&mut self.size.x, 0.0..=500.0).text("width"));
         ui.add(Slider::new(&mut self.size.y, 0.0..=500.0).text("height"));
-        ui.add(Slider::new(&mut self.rounding, 0.0..=50.0).text("rounding"));
+        ui.add(Slider::new(&mut self.corner_radius, 0.0..=50.0).text("corner_radius"));
         ui.add(Slider::new(&mut self.stroke_width, 0.0..=10.0).text("stroke_width"));
         ui.add(Slider::new(&mut self.num_boxes, 0..=8).text("num_boxes"));
 
@@ -360,9 +387,10 @@ impl BoxPainting {
                 let (rect, _response) = ui.allocate_at_least(self.size, Sense::hover());
                 ui.painter().rect(
                     rect,
-                    self.rounding,
-                    Color32::from_gray(64),
+                    self.corner_radius,
+                    ui.visuals().text_color().gamma_multiply(0.5),
                     Stroke::new(self.stroke_width, Color32::WHITE),
+                    egui::StrokeKind::Inside,
                 );
             }
         });
@@ -422,8 +450,8 @@ struct Tree(Vec<Tree>);
 impl Tree {
     pub fn demo() -> Self {
         Self(vec![
-            Tree(vec![Tree::default(); 4]),
-            Tree(vec![Tree(vec![Tree::default(); 2]); 3]),
+            Self(vec![Self::default(); 4]),
+            Self(vec![Self(vec![Self::default(); 2]); 3]),
         ])
     }
 
@@ -455,7 +483,7 @@ impl Tree {
             .into_iter()
             .enumerate()
             .filter_map(|(i, mut tree)| {
-                if tree.ui_impl(ui, depth + 1, &format!("child #{}", i)) == Action::Keep {
+                if tree.ui_impl(ui, depth + 1, &format!("child #{i}")) == Action::Keep {
                     Some(tree)
                 } else {
                     None
@@ -464,7 +492,7 @@ impl Tree {
             .collect();
 
         if ui.button("+").clicked() {
-            self.0.push(Tree::default());
+            self.0.push(Self::default());
         }
 
         Action::Keep
@@ -473,12 +501,71 @@ impl Tree {
 
 // ----------------------------------------------------------------------------
 
-fn text_layout_ui(
-    ui: &mut egui::Ui,
-    max_rows: &mut usize,
-    break_anywhere: &mut bool,
-    overflow_character: &mut Option<char>,
-) {
+fn ui_stack_demo(ui: &mut Ui) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label("The");
+        ui.code("egui::Ui");
+        ui.label("core type is typically deeply nested in");
+        ui.code("egui");
+        ui.label(
+            "applications. To provide context to nested code, it maintains a stack \
+                        with various information.\n\nThis is how the stack looks like here:",
+        );
+    });
+    let stack = ui.stack().clone();
+    egui::Frame::new()
+        .inner_margin(ui.spacing().menu_margin)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .show(ui, |ui| {
+            egui_extras::TableBuilder::new(ui)
+                .column(egui_extras::Column::auto())
+                .column(egui_extras::Column::auto())
+                .header(18.0, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("id");
+                    });
+                    header.col(|ui| {
+                        ui.strong("kind");
+                    });
+                })
+                .body(|mut body| {
+                    for node in stack.iter() {
+                        body.row(18.0, |mut row| {
+                            row.col(|ui| {
+                                let response = ui.label(format!("{:?}", node.id));
+
+                                if response.hovered() {
+                                    ui.ctx().debug_painter().debug_rect(
+                                        node.max_rect,
+                                        Color32::GREEN,
+                                        "max_rect",
+                                    );
+                                    ui.ctx().debug_painter().circle_filled(
+                                        node.min_rect.min,
+                                        2.0,
+                                        Color32::RED,
+                                    );
+                                }
+                            });
+
+                            row.col(|ui| {
+                                ui.label(if let Some(kind) = node.kind() {
+                                    format!("{kind:?}")
+                                } else {
+                                    "-".to_owned()
+                                });
+                            });
+                        });
+                    }
+                });
+        });
+
+    ui.small("Hover on UI's ids to display their origin and max rect.");
+}
+
+// ----------------------------------------------------------------------------
+
+fn text_layout_demo(ui: &mut Ui) {
     use egui::text::LayoutJob;
 
     let mut job = LayoutJob::default();
@@ -492,8 +579,17 @@ fn text_layout_ui(
     };
 
     job.append(
-        "This is a demonstration of ",
+        "This",
         first_row_indentation,
+        TextFormat {
+            color: default_color,
+            font_id: FontId::proportional(20.0),
+            ..Default::default()
+        },
+    );
+    job.append(
+        " is a demonstration of ",
+        0.0,
         TextFormat {
             color: default_color,
             ..Default::default()
@@ -544,7 +640,7 @@ fn text_layout_ui(
         "mixing ",
         0.0,
         TextFormat {
-            font_id: FontId::proportional(17.0),
+            font_id: FontId::proportional(20.0),
             color: default_color,
             ..Default::default()
         },
@@ -632,32 +728,4 @@ fn text_layout_ui(
     );
 
     ui.label(job);
-
-    ui.separator();
-
-    ui.horizontal(|ui| {
-        ui.add(DragValue::new(max_rows));
-        ui.label("Max rows");
-    });
-    ui.checkbox(break_anywhere, "Break anywhere");
-    ui.horizontal(|ui| {
-        ui.selectable_value(overflow_character, None, "None");
-        ui.selectable_value(overflow_character, Some('…'), "…");
-        ui.selectable_value(overflow_character, Some('—'), "—");
-        ui.selectable_value(overflow_character, Some('-'), "  -  ");
-        ui.label("Overflow character");
-    });
-
-    let mut job = LayoutJob::single_section(LOREM_IPSUM.to_owned(), TextFormat::default());
-    job.wrap = TextWrapping {
-        max_rows: *max_rows,
-        break_anywhere: *break_anywhere,
-        overflow_character: *overflow_character,
-        ..Default::default()
-    };
-    ui.label(job);
-
-    ui.vertical_centered(|ui| {
-        ui.add(crate::egui_github_link_file_line!());
-    });
 }

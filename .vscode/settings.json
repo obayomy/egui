@@ -8,25 +8,33 @@
         }
     },
     "files.exclude": {
-        "target/**": true,
         "target_ra/**": true,
+        "target_wasm/**": true,
+        "target/**": true,
     },
     // Tell Rust Analyzer to use its own target directory, so we don't need to wait for it to finish wen we want to `cargo run`
-    "rust-analyzer.checkOnSave.overrideCommand": [
+    "rust-analyzer.check.overrideCommand": [
         "cargo",
-        "cranky",
+        "clippy",
         "--target-dir=target_ra",
         "--workspace",
         "--message-format=json",
-        "--all-targets"
+        "--all-targets",
+        "--all-features",
     ],
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
-        "check",
+        "clippy",
         "--quiet",
         "--target-dir=target_ra",
         "--workspace",
         "--message-format=json",
-        "--all-targets"
+        "--all-targets",
+        "--all-features",
     ],
+    "rust-analyzer.showUnlinkedFileNotification": false,
+
+    // Uncomment the following options and restart rust-analyzer to get it to check code behind `cfg(target_arch=wasm32)`.
+    // Don't forget to put it in a comment again before committing.
+    // "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
 }

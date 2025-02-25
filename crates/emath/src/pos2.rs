@@ -1,6 +1,7 @@
+use std::fmt;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
-use crate::*;
+use crate::{lerp, Div, Mul, Vec2};
 
 /// A position on screen.
 ///
@@ -188,6 +189,14 @@ impl Pos2 {
             y: self.y.clamp(min.y, max.y),
         }
     }
+
+    /// Linearly interpolate towards another point, so that `0.0 => self, 1.0 => other`.
+    pub fn lerp(&self, other: Self, t: f32) -> Self {
+        Self {
+            x: lerp(self.x..=other.x, t),
+            y: lerp(self.y..=other.y, t),
+        }
+    }
 }
 
 impl std::ops::Index<usize> for Pos2 {
@@ -198,7 +207,7 @@ impl std::ops::Index<usize> for Pos2 {
         match index {
             0 => &self.x,
             1 => &self.y,
-            _ => panic!("Pos2 index out of bounds: {}", index),
+            _ => panic!("Pos2 index out of bounds: {index}"),
         }
     }
 }
@@ -209,7 +218,7 @@ impl std::ops::IndexMut<usize> for Pos2 {
         match index {
             0 => &mut self.x,
             1 => &mut self.y,
-            _ => panic!("Pos2 index out of bounds: {}", index),
+            _ => panic!("Pos2 index out of bounds: {index}"),
         }
     }
 }
@@ -219,7 +228,7 @@ impl Eq for Pos2 {}
 impl AddAssign<Vec2> for Pos2 {
     #[inline(always)]
     fn add_assign(&mut self, rhs: Vec2) {
-        *self = Pos2 {
+        *self = Self {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
         };
@@ -229,7 +238,7 @@ impl AddAssign<Vec2> for Pos2 {
 impl SubAssign<Vec2> for Pos2 {
     #[inline(always)]
     fn sub_assign(&mut self, rhs: Vec2) {
-        *self = Pos2 {
+        *self = Self {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
         };
@@ -237,11 +246,11 @@ impl SubAssign<Vec2> for Pos2 {
 }
 
 impl Add<Vec2> for Pos2 {
-    type Output = Pos2;
+    type Output = Self;
 
     #[inline(always)]
-    fn add(self, rhs: Vec2) -> Pos2 {
-        Pos2 {
+    fn add(self, rhs: Vec2) -> Self {
+        Self {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
         }
@@ -252,7 +261,7 @@ impl Sub for Pos2 {
     type Output = Vec2;
 
     #[inline(always)]
-    fn sub(self, rhs: Pos2) -> Vec2 {
+    fn sub(self, rhs: Self) -> Vec2 {
         Vec2 {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
@@ -261,19 +270,70 @@ impl Sub for Pos2 {
 }
 
 impl Sub<Vec2> for Pos2 {
-    type Output = Pos2;
+    type Output = Self;
 
     #[inline(always)]
-    fn sub(self, rhs: Vec2) -> Pos2 {
-        Pos2 {
+    fn sub(self, rhs: Vec2) -> Self {
+        Self {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
         }
     }
 }
 
-impl std::fmt::Debug for Pos2 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{:.1} {:.1}]", self.x, self.y)
+impl Mul<f32> for Pos2 {
+    type Output = Self;
+
+    #[inline(always)]
+    fn mul(self, factor: f32) -> Self {
+        Self {
+            x: self.x * factor,
+            y: self.y * factor,
+        }
+    }
+}
+
+impl Mul<Pos2> for f32 {
+    type Output = Pos2;
+
+    #[inline(always)]
+    fn mul(self, vec: Pos2) -> Pos2 {
+        Pos2 {
+            x: self * vec.x,
+            y: self * vec.y,
+        }
+    }
+}
+
+impl Div<f32> for Pos2 {
+    type Output = Self;
+
+    #[inline(always)]
+    fn div(self, factor: f32) -> Self {
+        Self {
+            x: self.x / factor,
+            y: self.y / factor,
+        }
+    }
+}
+
+impl fmt::Debug for Pos2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(precision) = f.precision() {
+            write!(f, "[{1:.0$} {2:.0$}]", precision, self.x, self.y)
+        } else {
+            write!(f, "[{:.1} {:.1}]", self.x, self.y)
+        }
+    }
+}
+
+impl fmt::Display for Pos2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[")?;
+        self.x.fmt(f)?;
+        f.write_str(" ")?;
+        self.y.fmt(f)?;
+        f.write_str("]")?;
+        Ok(())
     }
 }

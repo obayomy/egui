@@ -20,52 +20,58 @@
 //!
 
 #![allow(clippy::float_cmp)]
-#![forbid(unsafe_code)]
 
 use std::ops::{Add, Div, Mul, RangeInclusive, Sub};
 
 // ----------------------------------------------------------------------------
 
 pub mod align;
+pub mod easing;
+mod gui_rounding;
 mod history;
 mod numeric;
+mod ordered_float;
 mod pos2;
+mod range;
 mod rect;
+mod rect_align;
 mod rect_transform;
 mod rot2;
 pub mod smart_aim;
+mod ts_transform;
 mod vec2;
+mod vec2b;
 
-pub use {
+pub use self::{
     align::{Align, Align2},
+    gui_rounding::{GuiRounding, GUI_ROUNDING},
     history::History,
     numeric::*,
+    ordered_float::*,
     pos2::*,
+    range::Rangef,
     rect::*,
+    rect_align::RectAlign,
     rect_transform::*,
     rot2::*,
+    ts_transform::*,
     vec2::*,
+    vec2b::*,
 };
 
 // ----------------------------------------------------------------------------
 
 /// Helper trait to implement [`lerp`] and [`remap`].
 pub trait One {
-    fn one() -> Self;
+    const ONE: Self;
 }
 
 impl One for f32 {
-    #[inline(always)]
-    fn one() -> Self {
-        1.0
-    }
+    const ONE: Self = 1.0;
 }
 
 impl One for f64 {
-    #[inline(always)]
-    fn one() -> Self {
-        1.0
-    }
+    const ONE: Self = 1.0;
 }
 
 /// Helper trait to implement [`lerp`] and [`remap`].
@@ -97,12 +103,13 @@ impl Real for f64 {}
 /// assert_eq!(lerp(1.0..=5.0, 2.0), 9.0);
 /// ```
 #[inline(always)]
-pub fn lerp<R, T>(range: RangeInclusive<R>, t: T) -> R
+pub fn lerp<R, T>(range: impl Into<RangeInclusive<R>>, t: T) -> R
 where
     T: Real + Mul<R, Output = R>,
     R: Copy + Add<R, Output = R>,
 {
-    (T::one() - t) * *range.start() + t * *range.end()
+    let range = range.into();
+    (T::ONE - t) * *range.start() + t * *range.end()
 }
 
 /// Where in the range is this value? Returns 0-1 if within the range.
@@ -136,20 +143,28 @@ where
 /// Linearly remap a value from one range to another,
 /// so that when `x == from.start()` returns `to.start()`
 /// and when `x == from.end()` returns `to.end()`.
-pub fn remap<T>(x: T, from: RangeInclusive<T>, to: RangeInclusive<T>) -> T
+pub fn remap<T>(x: T, from: impl Into<RangeInclusive<T>>, to: impl Into<RangeInclusive<T>>) -> T
 where
     T: Real,
 {
-    crate::emath_assert!(from.start() != from.end());
+    let from = from.into();
+    let to = to.into();
+    debug_assert!(from.start() != from.end());
     let t = (x - *from.start()) / (*from.end() - *from.start());
     lerp(to, t)
 }
 
 /// Like [`remap`], but also clamps the value so that the returned value is always in the `to` range.
-pub fn remap_clamp<T>(x: T, from: RangeInclusive<T>, to: RangeInclusive<T>) -> T
+pub fn remap_clamp<T>(
+    x: T,
+    from: impl Into<RangeInclusive<T>>,
+    to: impl Into<RangeInclusive<T>>,
+) -> T
 where
     T: Real,
 {
+    let from = from.into();
+    let to = to.into();
     if from.end() < from.start() {
         return remap_clamp(x, *from.end()..=*from.start(), *to.end()..=*to.start());
     }
@@ -158,10 +173,10 @@ where
     } else if *from.end() <= x {
         *to.end()
     } else {
-        crate::emath_assert!(from.start() != from.end());
+        debug_assert!(from.start() != from.end());
         let t = (x - *from.start()) / (*from.end() - *from.start());
         // Ensure no numerical inaccuracies sneak in:
-        if T::one() <= t {
+        if T::ONE <= t {
             *to.end()
         } else {
             lerp(to, t)
@@ -172,27 +187,28 @@ where
 /// Round a value to the given number of decimal places.
 pub fn round_to_decimals(value: f64, decimal_places: usize) -> f64 {
     // This is a stupid way of doing this, but stupid works.
-    format!("{:.*}", decimal_places, value)
-        .parse()
-        .unwrap_or(value)
+    format!("{value:.decimal_places$}").parse().unwrap_or(value)
 }
 
 pub fn format_with_minimum_decimals(value: f64, decimals: usize) -> String {
     format_with_decimals_in_range(value, decimals..=6)
 }
 
+/// Use as few decimals as possible to show the value accurately, but within the given range.
+///
+/// Decimals are counted after the decimal point.
 pub fn format_with_decimals_in_range(value: f64, decimal_range: RangeInclusive<usize>) -> String {
     let min_decimals = *decimal_range.start();
     let max_decimals = *decimal_range.end();
-    crate::emath_assert!(min_decimals <= max_decimals);
-    crate::emath_assert!(max_decimals < 100);
+    debug_assert!(min_decimals <= max_decimals);
+    debug_assert!(max_decimals < 100);
     let max_decimals = max_decimals.min(16);
     let min_decimals = min_decimals.min(max_decimals);
 
-    if min_decimals != max_decimals {
+    if min_decimals < max_decimals {
         // Ugly/slow way of doing this. TODO(emilk): clean up precision.
         for decimals in min_decimals..max_decimals {
-            let text = format!("{:.*}", decimals, value);
+            let text = format!("{value:.decimals$}");
             let epsilon = 16.0 * f32::EPSILON; // margin large enough to handle most peoples round-tripping needs
             if almost_equal(text.parse::<f32>().unwrap(), value as f32, epsilon) {
                 // Enough precision to show the value accurately - good!
@@ -203,7 +219,7 @@ pub fn format_with_decimals_in_range(value: f64, decimal_range: RangeInclusive<u
         // Probably the value was set not by the slider, but from outside.
         // In any case: show the full value
     }
-    format!("{:.*}", max_decimals, value)
+    format!("{value:.max_decimals$}")
 }
 
 /// Return true when arguments are the same within some rounding error.
@@ -375,18 +391,48 @@ pub fn exponential_smooth_factor(
     1.0 - (1.0 - reach_this_fraction).powf(dt / in_this_many_seconds)
 }
 
-// ----------------------------------------------------------------------------
-
-/// An assert that is only active when `emath` is compiled with the `extra_asserts` feature
-/// or with the `extra_debug_asserts` feature in debug builds.
-#[macro_export]
-macro_rules! emath_assert {
-    ($($arg: tt)*) => {
-        if cfg!(any(
-            feature = "extra_asserts",
-            all(feature = "extra_debug_asserts", debug_assertions),
-        )) {
-            assert!($($arg)*);
-        }
+/// If you have a value animating over time,
+/// how much towards its target do you need to move it this frame?
+///
+/// You only need to store the start time and target value in order to animate using this function.
+///
+/// ``` rs
+/// struct Animation {
+///     current_value: f32,
+///
+///     animation_time_span: (f64, f64),
+///     target_value: f32,
+/// }
+///
+/// impl Animation {
+///     fn update(&mut self, now: f64, dt: f32) {
+///         let t = interpolation_factor(self.animation_time_span, now, dt, ease_in_ease_out);
+///         self.current_value = emath::lerp(self.current_value..=self.target_value, t);
+///     }
+/// }
+/// ```
+pub fn interpolation_factor(
+    (start_time, end_time): (f64, f64),
+    current_time: f64,
+    dt: f32,
+    easing: impl Fn(f32) -> f32,
+) -> f32 {
+    let animation_duration = (end_time - start_time) as f32;
+    let prev_time = current_time - dt as f64;
+    let prev_t = easing((prev_time - start_time) as f32 / animation_duration);
+    let end_t = easing((current_time - start_time) as f32 / animation_duration);
+    if end_t < 1.0 {
+        (end_t - prev_t) / (1.0 - prev_t)
+    } else {
+        1.0
     }
+}
+
+/// Ease in, ease out.
+///
+/// `f(0) = 0, f'(0) = 0, f(1) = 1, f'(1) = 0`.
+#[inline]
+pub fn ease_in_ease_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    (3.0 * t * t - 2.0 * t * t * t).clamp(0.0, 1.0)
 }
